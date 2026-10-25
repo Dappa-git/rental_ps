@@ -1,1 +1,370 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>POS Rental PlayStation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root{--bg:#121212;--card:#1E1E1E;}
+  body{background:var(--bg);font-family:'Inter',system-ui,sans-serif;color:#eee;}
+  .timer-font{font-family:ui-monospace,'JetBrains Mono','Courier New',monospace;font-weight:800;letter-spacing:1px;font-variant-numeric:tabular-nums;}
+  .card{background:var(--card);box-shadow:0 1px 4px rgba(0,0,0,.5);}
+  @keyframes pulseWarn{0%,100%{box-shadow:0 0 0 0 rgba(245,158,11,.7);}50%{box-shadow:0 0 0 14px rgba(245,158,11,0);}}
+  .pulsing{animation:pulseWarn 1.4s ease-in-out infinite;}
+  .tv-box{transition:transform .12s ease;cursor:pointer;}
+  .tv-box:hover{transform:translateY(-2px);}
+  .tooltip{position:absolute;top:100%;left:50%;transform:translateX(-50%);margin-top:6px;white-space:nowrap;z-index:20;pointer-events:none;}
+  .toast{animation:fadein .2s ease;}
+  @keyframes fadein{from{opacity:0;transform:translateY(-6px);}to{opacity:1;transform:translateY(0);}}
+  .inp{width:100%;background:#2a2a2a;border-radius:.5rem;padding:.65rem .75rem;outline:none;}
+  .inp:focus{box-shadow:0 0 0 2px #10b981;}
+  th,td{padding:.55rem .75rem;text-align:left;white-space:nowrap;}
+  thead th{color:#9ca3af;font-weight:600;border-bottom:1px solid #333;}
+  tbody tr{border-bottom:1px solid #2a2a2a;}
+  @media (prefers-reduced-motion:reduce){.pulsing{animation:none;outline:4px solid #fff;}}
+</style>
+</head>
+<body>
+<div id="toastWrap" class="fixed top-4 right-4 z-50 flex flex-col gap-2"></div>
+
+<!-- LOGIN / DAFTAR -->
+<div id="auth" class="min-h-screen flex items-center justify-center p-4">
+  <div class="card rounded-xl p-6 w-full max-w-sm">
+    <h1 class="text-xl font-bold">🎮 POS Rental PlayStation</h1>
+    <div id="conn" class="text-xs mt-1 mb-4"></div>
+    <div class="grid grid-cols-2 gap-2 mb-4 text-sm font-semibold">
+      <button id="tLogin" onclick="authTab(false)" class="rounded-lg py-2">Masuk</button>
+      <button id="tReg" onclick="authTab(true)" class="rounded-lg py-2">Daftar</button>
+    </div>
+    <div class="space-y-2">
+      <input id="fn" class="inp hidden" placeholder="Nama lengkap">
+      <input id="fu" class="inp" placeholder="Username" autocomplete="username">
+      <input id="fp" class="inp" type="password" placeholder="Password" autocomplete="current-password">
+    </div>
+    <div id="ferr" class="text-red-400 text-sm mt-2 min-h-[1.25rem]"></div>
+    <button id="fgo" class="w-full mt-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg py-3 font-bold">Masuk</button>
+  </div>
+</div>
+
+<!-- APLIKASI -->
+<div id="app" class="hidden">
+  <div class="h-screen flex flex-col p-3 gap-3">
+    <header class="flex items-center justify-between gap-3">
+      <h1 class="text-xl font-bold">🎮 POS Rental PlayStation</h1>
+      <div class="flex gap-2 text-sm font-semibold">
+        <button id="bMon" onclick="setTab('mon')">📺 Monitor</button>
+        <button id="bHis" onclick="setTab('his')">📜 Riwayat</button>
+      </div>
+      <div class="flex items-center gap-3 text-sm">
+        <span id="who"></span>
+        <span id="clock" class="timer-font text-gray-400"></span>
+        <button onclick="logout()" class="bg-gray-700 hover:bg-gray-600 rounded-lg px-3 py-1.5">Keluar</button>
+      </div>
+    </header>
+    <div id="mon" class="flex-1 overflow-hidden">
+      <div class="flex gap-3 h-full">
+        <div class="basis-[70%] grow-0 shrink-0 overflow-y-auto"><div id="tvGrid" class="grid grid-cols-3 gap-3"></div></div>
+        <div class="basis-[30%] grow-0 shrink-0"><div id="panel" class="card rounded-xl p-4 h-full overflow-y-auto"></div></div>
+      </div>
+    </div>
+    <div id="his" class="hidden flex-1 overflow-y-auto"></div>
+  </div>
+</div>
+
+<script>
+/* ============ KONFIGURASI ============ */
+const TVS=[['TV-01','PS4'],['TV-02','PS4'],['TV-03','PS5'],['TV-04','PS3'],['TV-05','PS4'],['TV-06','PS5']];
+const PK={demo:{n:'Demo 1 Menit',s:60,p:1000},jam1:{n:'Paket 1 Jam',s:3600,p:10000},jam2:{n:'Paket 2 Jam',s:7200,p:18000},lepas:{n:'Main Lepas',s:null,p:0,r:8000},saldo:{n:'Sisa Waktu Akun',s:null,p:0}};
+const FNB=[['Es Teh',3000],['Kopi Sachet',4000],['Mie Instan',8000],['Keripik',5000],['Air Mineral',3000]];
+const ST={ready:['#10b981','text-black','READY'],inuse:['#dc2626','text-white','IN-USE'],warning:['#f59e0b','text-black','WARNING'],cleaning:['#06b6d4','text-black','CLEANING']};
+
+/* ============ UTIL ============ */
+const $=id=>document.getElementById(id);
+const pad=n=>String(n).padStart(2,'0');
+const fmt=s=>{s=Math.max(0,Math.floor(s));return `${pad(s/3600|0)}:${pad(s%3600/60|0)}:${pad(s%60)}`};
+const hm=t=>{const d=new Date(t);return pad(d.getHours())+':'+pad(d.getMinutes())};
+const rp=n=>'Rp'+Number(n).toLocaleString('id-ID');
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fnbSum=r=>r.fnb.reduce((a,f)=>a+f.price,0);
+const total=r=>r.bill_rental+fnbSum(r);
+function toast(msg,color='bg-cyan-700'){
+  const el=document.createElement('div');
+  el.className=`toast ${color} text-white text-sm px-4 py-3 rounded-lg shadow-lg max-w-xs`;
+  el.textContent=msg;$('toastWrap').appendChild(el);
+  setTimeout(()=>{el.style.transition='opacity .4s';el.style.opacity='0';setTimeout(()=>el.remove(),400)},4200);
+}
+function beep(){try{const c=new(window.AudioContext||webkitAudioContext)(),o=c.createOscillator();o.connect(c.destination);o.frequency.value=880;o.start();setTimeout(()=>{o.stop();c.close()},700)}catch(e){}}
+
+/* ============ LAPISAN DATA ============ */
+let mode='server',token=null,me=null,rentals=[],tab='mon',sel=null,drawer=false,q='',last='',sig='';
+const fin=new Set();
+
+async function api(m,p,b){
+  if(mode==='local')return Local(m,p,b);
+  const r=await fetch('/api'+p,{method:m,headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:b?JSON.stringify(b):undefined});
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok)throw new Error(j.error||'Terjadi kesalahan');
+  return j;
+}
+
+/* Mode lokal (demo): data disimpan di localStorage browser, tanpa server/MySQL. Password TIDAK di-hash. */
+function Local(m,p,b){
+  const D=JSON.parse(localStorage.getItem('psdb')||'null')||{users:[{id:1,username:'admin1234',password:'kelompok10',name:'Administrator',role:'admin',saldo_detik:0}],rentals:[]};
+  const sv=()=>localStorage.setItem('psdb',JSON.stringify(D));
+  const pub=u=>({id:u.id,username:u.username,name:u.name,role:u.role,saldo_detik:u.saldo_detik});
+  if(p==='/register'){
+    if(D.users.some(x=>x.username===b.username))throw Error('Username sudah dipakai');
+    const u={id:Date.now(),username:b.username,password:b.password,name:b.name,role:'user',saldo_detik:0};
+    D.users.push(u);sv();return{token:u.id,user:pub(u)};
+  }
+  if(p==='/login'){
+    const u=D.users.find(x=>x.username===b.username&&x.password===b.password);
+    if(!u)throw Error('Username atau password salah');
+    return{token:u.id,user:pub(u)};
+  }
+  const U=D.users.find(x=>x.id==token);
+  if(!U)throw Error('Belum login');
+  if(p==='/me')return pub(U);
+  if(p==='/rentals')return D.rentals.filter(r=>U.role==='admin'||r.user_id===U.id||r.status!=='paid').sort((a,c)=>c.start_at-a.start_at);
+  if(p.startsWith('/rentals/')){
+    if(b.status!=='paid'&&D.rentals.some(r=>r.tv_id===b.tv_id&&r.status!=='paid'&&r.id!==b.id))throw Error(b.tv_id+' sedang dipakai');
+    const i=D.rentals.findIndex(r=>r.id===b.id);i<0?D.rentals.push(b):D.rentals[i]=b;sv();return{ok:1};
+  }
+  if(p.endsWith('/saldo')){
+    const u=D.users.find(x=>x.id==p.split('/')[2]);u.saldo_detik=Math.max(0,u.saldo_detik+b.add);sv();return{ok:1};
+  }
+}
+
+/* ============ LOGIN / DAFTAR ============ */
+let reg=false;
+function authTab(r){
+  reg=r;$('fn').classList.toggle('hidden',!r);$('fgo').textContent=r?'Daftar':'Masuk';$('ferr').textContent='';
+  $('tLogin').className='rounded-lg py-2 '+(r?'bg-gray-700':'bg-emerald-600');
+  $('tReg').className='rounded-lg py-2 '+(r?'bg-emerald-600':'bg-gray-700');
+}
+$('fgo').onclick=async()=>{
+  const b={username:$('fu').value.trim(),password:$('fp').value};
+  if(reg){
+    b.name=$('fn').value.trim();
+    if(!/^[a-zA-Z0-9_]{3,30}$/.test(b.username))return $('ferr').textContent='Username 3-30 karakter (huruf, angka, _).';
+    if(b.password.length<4)return $('ferr').textContent='Password minimal 4 karakter.';
+    if(!b.name)return $('ferr').textContent='Nama lengkap wajib diisi.';
+  }
+  try{
+    const r=await api('POST',reg?'/register':'/login',b);
+    token=r.token;sessionStorage.setItem('tk',token);await enter();
+  }catch(e){$('ferr').textContent=e.message}
+};
+$('fp').addEventListener('keydown',e=>{if(e.key==='Enter')$('fgo').click()});
+function logout(){sessionStorage.removeItem('tk');location.reload()}
+
+async function enter(){
+  me=await api('GET','/me');
+  $('auth').classList.add('hidden');$('app').classList.remove('hidden');
+  await refresh(true);setTab('mon');
+}
+async function refresh(force){
+  const data=await api('GET','/rentals');
+  me=await api('GET','/me');
+  const j=JSON.stringify(data);
+  rentals=data;
+  $('who').innerHTML=`${esc(me.name)} <span class="text-gray-400">(${me.role})</span> · ⏳ ${fmt(me.saldo_detik)}`;
+  if(force||j!==last){last=j;paint()}
+}
+function paint(){if(tab==='mon'){grid();panel()}else hisBody()}
+
+/* ============ STATUS TV ============ */
+const cur=id=>rentals.find(r=>r.tv_id===id&&r.status!=='paid');
+function view(r){
+  if(r.status==='cleaning')return{st:'cleaning',rem:0};
+  const n=Date.now();
+  if(!r.end_at)return{st:'inuse',el:(n-r.start_at)/1000};
+  const rem=Math.ceil((r.end_at-n)/1000);
+  if(rem<=0)return{st:'cleaning',rem:0};
+  return{st:rem<=(r.duration<=60?10:600)?'warning':'inuse',rem};
+}
+const sigOf=()=>TVS.map(t=>{const r=cur(t[0]);return r?view(r).st+r.id:'ready'}).join();
+const timeOf=r=>{const v=view(r);return v.st==='cleaning'?'00:00:00':fmt(v.rem??v.el)};
+
+/* ============ RENDER MONITOR ============ */
+function grid(){
+  sig=sigOf();
+  $('tvGrid').innerHTML=TVS.map(([id,cons])=>{
+    const r=cur(id);let st='ready',tm='--:--:--',tip='';
+    if(r){st=view(r).st;tm=timeOf(r);
+      if(st==='inuse')tip=`<div class="tooltip card border border-gray-600 rounded-md px-3 py-2 text-xs hidden group-hover:block">Pemain: ${esc(r.pemain)} | Mulai: ${hm(r.start_at)} | Berakhir: ${r.end_at?hm(r.end_at):'Lepas'}</div>`;}
+    const [bg,tx,lb]=ST[st];
+    return `<div class="tv-box relative group rounded-xl p-4 ${tx} ${st==='warning'?'pulsing':''} ${sel===id?'ring-4 ring-white/70':''}" style="background:${bg}" onclick="selTV('${id}')">
+      ${tip}
+      <div class="flex justify-between items-start"><span class="font-bold text-lg">${id}</span><span class="text-xs font-semibold px-2 py-0.5 rounded bg-black/25">${cons}</span></div>
+      <div id="tm-${id}" class="timer-font text-3xl mt-3">${tm}</div>
+      <div class="text-xs font-semibold mt-1 opacity-80">${lb}${r&&r.user_id!==me.id?' · '+esc(r.pemain):''}</div></div>`;
+  }).join('');
+}
+function selTV(id){sel=id;drawer=false;grid();panel()}
+
+function panel(){
+  const P=$('panel');
+  if(!sel){P.innerHTML='<p class="text-gray-400 text-sm">Pilih salah satu kotak TV untuk memulai atau mengelola sewa.</p>';return}
+  const tv=TVS.find(t=>t[0]===sel),r=cur(sel);
+  const head=`<h2 class="text-lg font-bold mb-1">${tv[0]} <span class="text-sm text-gray-400">(${tv[1]})</span></h2>`;
+  if(!r){
+    const sal=me.saldo_detik>0?`<button class="bg-cyan-700 hover:bg-cyan-600 rounded-lg py-3 font-semibold" onclick="A.start('saldo')">⏳ Pakai Sisa Waktu (${fmt(me.saldo_detik)})</button>`:'';
+    P.innerHTML=`${head}<p class="text-sm text-emerald-400 mb-4">Status: Siap disewa</p>
+      <h3 class="font-semibold mb-2 text-sm text-gray-300">Mulai Sewa Baru</h3>
+      <div class="grid gap-2">${sal}
+        <button class="bg-emerald-600 hover:bg-emerald-500 rounded-lg py-3 font-semibold" onclick="A.start('jam1')">⏱ Paket 1 Jam — ${rp(PK.jam1.p)}</button>
+        <button class="bg-emerald-600 hover:bg-emerald-500 rounded-lg py-3 font-semibold" onclick="A.start('jam2')">⏱ Paket 2 Jam — ${rp(PK.jam2.p)}</button>
+        <button class="bg-gray-700 hover:bg-gray-600 rounded-lg py-3 font-semibold" onclick="A.start('lepas')">🕹 Main Lepas (hitung naik)</button>
+        <button class="bg-amber-700 hover:bg-amber-600 rounded-lg py-2 text-xs font-semibold" onclick="A.start('demo')">▶ Demo 1 Menit (simulasi cepat)</button></div>`;
+    return;
+  }
+  const v=view(r),own=r.user_id===me.id||me.role==='admin';
+  if(!own){P.innerHTML=`${head}<p class="text-sm text-gray-300 mt-2">Sedang dipakai oleh <b>${esc(r.pemain)}</b>.<br>Mulai ${hm(r.start_at)}${r.end_at?' · berakhir '+hm(r.end_at):''}</p>`;return}
+  const fl=r.fnb.length?`(${r.fnb.map(f=>esc(f.item)).join(', ')})`:'';
+  if(v.st==='cleaning'){
+    P.innerHTML=`${head}<p class="text-sm text-cyan-400 mb-4 font-semibold">Waktu habis — perlu dibersihkan</p>
+      <div class="text-sm text-gray-300 space-y-1 mb-4">
+        <div>Pemain: <b>${esc(r.pemain)}</b></div><div>Paket: ${PK[r.pkg].n}</div>
+        <div>Rental: ${rp(r.bill_rental)}</div><div>F&amp;B: ${rp(fnbSum(r))} ${fl}</div>
+        ${r.sisa_detik>0?`<div class="text-cyan-300">⏳ Sisa ${fmt(r.sisa_detik)} tersimpan di akun ${esc(r.pemain)}</div>`:''}
+        <div class="text-lg font-bold text-white border-t border-gray-600 pt-2 mt-2">Total Tagihan: ${rp(total(r))}</div></div>
+      <div class="grid gap-2">
+        <button class="bg-gray-700 hover:bg-gray-600 rounded-lg py-2.5 font-semibold" onclick="A.print()">🖨 Cetak Struk</button>
+        <button class="bg-emerald-600 hover:bg-emerald-500 rounded-lg py-3 font-bold" onclick="A.pay()">✅ Selesaikan Pembayaran</button></div>`;
+    return;
+  }
+  if(drawer){
+    P.innerHTML=`<div class="flex justify-between items-center mb-3"><h2 class="text-lg font-bold">Tambah F&amp;B — ${tv[0]}</h2><button class="text-gray-400 hover:text-white text-sm" onclick="A.closeFnb()">✕ Tutup</button></div>
+      <div class="grid gap-2">${FNB.map((f,i)=>`<button class="flex justify-between bg-gray-800 hover:bg-gray-700 rounded-lg px-4 py-3" onclick="A.addFnb(${i})"><span>${f[0]}</span><span class="font-semibold">${rp(f[1])}</span></button>`).join('')}</div>
+      <div class="mt-4 text-sm text-gray-400">Total F&amp;B: <b class="text-white">${rp(fnbSum(r))}</b> ${fl}</div>
+      <button class="w-full mt-4 bg-gray-700 hover:bg-gray-600 rounded-lg py-2.5 font-semibold" onclick="A.closeFnb()">Kembali</button>`;
+    return;
+  }
+  P.innerHTML=`${head}<p class="text-sm ${v.st==='warning'?'text-amber-400':'text-red-400'} mb-2 font-semibold">${v.st==='warning'?'Waktu hampir habis!':'Sedang digunakan'}</p>
+    <div id="ptimer" class="timer-font text-4xl mb-3">${timeOf(r)}</div>
+    <div class="text-sm text-gray-300 space-y-1 mb-4">
+      <div>Pemain: <b>${esc(r.pemain)}</b></div><div>Mulai: ${hm(r.start_at)} ${r.end_at?'| Berakhir: '+hm(r.end_at):'(open time)'}</div>
+      <div>Rental: ${r.pkg==='lepas'?'dihitung saat stop':rp(r.bill_rental)}</div><div>F&amp;B: ${rp(fnbSum(r))} ${fl}</div></div>
+    <div class="grid gap-2">
+      <button class="bg-blue-600 hover:bg-blue-500 rounded-lg py-2.5 font-semibold" onclick="A.addHour()">＋ 1 Jam (${rp(PK.jam1.p)})</button>
+      <button class="bg-purple-600 hover:bg-purple-500 rounded-lg py-2.5 font-semibold" onclick="A.openFnb()">＋ F&amp;B</button>
+      <button class="bg-red-700 hover:bg-red-600 rounded-lg py-2.5 font-semibold mt-2" onclick="A.stop()">⏹ Stop Manual</button></div>`;
+}
+
+/* ============ AKSI ============ */
+const save=r=>api('PUT','/rentals/'+r.id,r);
+const run=f=>async(...a)=>{try{await f(...a)}catch(e){toast(e.message,'bg-red-700')}try{await refresh(true)}catch(e){}};
+const A={
+  start:run(async k=>{
+    const t=TVS.find(x=>x[0]===sel),p=PK[k],n=Date.now(),d=k==='saldo'?me.saldo_detik:p.s;
+    await save({id:n.toString(36)+Math.random().toString(36).slice(2,8),tv_id:t[0],console:t[1],user_id:me.id,pemain:me.name,pkg:k,status:'active',start_at:n,end_at:d?n+d*1000:null,duration:d||null,stop_at:null,paid_at:null,bill_rental:p.p,sisa_detik:0,fnb:[]});
+    if(k==='saldo')await api('POST','/users/'+me.id+'/saldo',{add:-d});
+  }),
+  addHour:run(async()=>{
+    const r=cur(sel);
+    if(!r.end_at)return toast('Main Lepas tidak memakai batas waktu.','bg-gray-700');
+    r.end_at+=3600000;r.duration+=3600;r.bill_rental+=PK.jam1.p;await save(r);toast(r.tv_id+': +1 Jam ditambahkan','bg-blue-700');
+  }),
+  openFnb(){drawer=true;panel()},
+  closeFnb(){drawer=false;panel()},
+  addFnb:run(async i=>{
+    const r=cur(sel);r.fnb.push({item:FNB[i][0],price:FNB[i][1]});await save(r);toast(`${r.tv_id}: ${FNB[i][0]} ditambahkan`,'bg-purple-700');
+  }),
+  stop:run(async()=>{
+    const r=cur(sel);
+    if(!confirm(`${r.tv_id} masih berjalan. Yakin ingin menghentikan sesi secara manual?`))return;
+    const n=Date.now();r.stop_at=n;
+    if(r.end_at)r.sisa_detik=Math.max(0,Math.ceil((r.end_at-n)/1000));
+    else r.bill_rental=Math.max(1,Math.ceil((n-r.start_at)/3600000))*PK.lepas.r;
+    r.status='cleaning';await save(r);
+    if(r.sisa_detik>0)await api('POST','/users/'+r.user_id+'/saldo',{add:r.sisa_detik});
+    toast(r.sisa_detik>0?`${r.tv_id}: sisa ${fmt(r.sisa_detik)} disimpan ke akun`:r.tv_id+': sesi dihentikan','bg-red-700');
+  }),
+  pay:run(async()=>{
+    const r=cur(sel);r.status='paid';r.paid_at=Date.now();await save(r);toast(`${r.tv_id}: pembayaran ${rp(total(r))} selesai. TV siap disewa lagi.`,'bg-emerald-700');
+  }),
+  print(){
+    const r=cur(sel),w=window.open('','_blank','width=340,height=520');
+    if(!w)return toast('Pop-up diblokir browser. Izinkan pop-up untuk mencetak struk.','bg-red-700');
+    w.document.write(`<body style="font:12px monospace;width:260px"><h3 style="text-align:center;margin:0">RENTAL PLAYSTATION</h3><p style="text-align:center;margin:2px 0 8px">${new Date().toLocaleString('id-ID')}</p>
+      <div>${r.tv_id} (${r.console}) · ${esc(r.pemain)}</div><div>${PK[r.pkg].n}</div><hr>
+      <table width="100%"><tr><td>Rental</td><td align="right">${rp(r.bill_rental)}</td></tr>
+      ${r.fnb.map(f=>`<tr><td>${esc(f.item)}</td><td align="right">${rp(f.price)}</td></tr>`).join('')}
+      <tr><td><b>TOTAL</b></td><td align="right"><b>${rp(total(r))}</b></td></tr></table><hr>
+      ${r.sisa_detik>0?`<div>Sisa waktu tersimpan: ${fmt(r.sisa_detik)}</div>`:''}<p style="text-align:center">Terima kasih!</p></body>`);
+    w.document.close();w.print();
+  },
+  csv(){
+    const rows=[['Mulai','Pemain','TV','Paket','Durasi main (detik)','Sisa tersimpan (detik)','F&B','Total','Status']].concat(hisRows().map(r=>[
+      new Date(r.start_at).toLocaleString('id-ID'),r.pemain,r.tv_id,PK[r.pkg].n,used(r),r.sisa_detik,r.fnb.map(f=>f.item).join('; '),total(r),stLabel(r)]));
+    const blob=new Blob(['\ufeff'+rows.map(x=>x.map(c=>'"'+String(c).replace(/"/g,'""')+'"').join(',')).join('\n')],{type:'text/csv'});
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='riwayat-rental.csv';a.click();
+  }
+};
+
+/* ============ RIWAYAT & ADMIN ============ */
+const used=r=>{const e=r.stop_at||(r.status==='paid'?(r.end_at||r.paid_at):null);return e?Math.max(0,Math.round((e-r.start_at)/1000)):0};
+const stLabel=r=>({active:'Berjalan',cleaning:'Menunggu bayar',paid:'Lunas'}[r.status]);
+const hisRows=()=>rentals.filter(r=>`${r.pemain} ${r.tv_id} ${PK[r.pkg].n}`.toLowerCase().includes(q.toLowerCase()));
+function setTab(t){
+  tab=t;$('mon').classList.toggle('hidden',t!=='mon');$('his').classList.toggle('hidden',t==='mon');
+  $('bMon').className='rounded-lg px-4 py-2 '+(t==='mon'?'bg-emerald-600':'bg-gray-700');
+  $('bHis').className='rounded-lg px-4 py-2 '+(t==='his'?'bg-emerald-600':'bg-gray-700');
+  if(t==='his'){
+    const adm=me.role==='admin';
+    $('his').innerHTML=`<h2 class="text-lg font-bold mb-3">${adm?'Dasbor Admin — semua pengguna':'Riwayat saya'}</h2>
+      ${adm?'<div id="cards" class="grid grid-cols-3 gap-3 mb-3"></div>':''}
+      <div class="flex gap-2 mb-3"><input id="q" class="inp max-w-sm" placeholder="Cari pemain, TV, atau paket" value="${esc(q)}">
+      ${adm?'<button class="bg-gray-700 hover:bg-gray-600 rounded-lg px-4" onclick="A.csv()">⬇ Ekspor CSV</button>':''}</div>
+      <div class="card rounded-xl overflow-x-auto"><table class="w-full text-sm"><thead><tr><th>Mulai</th><th>Pemain</th><th>TV</th><th>Paket</th><th>Durasi main</th><th>Sisa tersimpan</th><th>F&amp;B</th><th>Total</th><th>Status</th></tr></thead><tbody id="hbody"></tbody></table></div>`;
+    $('q').oninput=e=>{q=e.target.value;hisBody()};
+  }
+  paint();
+}
+function hisBody(){
+  if(!$('hbody'))return;
+  const rows=hisRows();
+  $('hbody').innerHTML=rows.length?rows.map(r=>`<tr><td>${new Date(r.start_at).toLocaleString('id-ID',{dateStyle:'short',timeStyle:'short'})}</td><td>${esc(r.pemain)}</td><td>${r.tv_id} (${r.console})</td><td>${PK[r.pkg].n}</td>
+    <td class="timer-font">${r.status==='paid'||r.stop_at?fmt(used(r)):'—'}</td><td class="timer-font">${r.sisa_detik?fmt(r.sisa_detik):'—'}</td>
+    <td>${r.fnb.length?esc(r.fnb.map(f=>f.item).join(', '))+' ('+rp(fnbSum(r))+')':'—'}</td><td class="font-semibold">${rp(total(r))}</td>
+    <td>${stLabel(r)}${r.stop_at?' · stop manual':''}</td></tr>`).join(''):'<tr><td colspan="9" class="text-gray-400">Belum ada riwayat. Mulai sewa dari tab Monitor.</td></tr>';
+  if($('cards')){
+    const day=new Date().setHours(0,0,0,0),done=rentals.filter(r=>r.status==='paid'&&r.paid_at>=day);
+    const card=(t,v)=>`<div class="card rounded-xl p-4"><div class="text-sm text-gray-400">${t}</div><div class="timer-font text-2xl mt-1">${v}</div></div>`;
+    $('cards').innerHTML=card('Pendapatan hari ini',rp(done.reduce((a,r)=>a+total(r),0)))+card('Sesi selesai hari ini',done.length)+card('TV sedang dipakai',rentals.filter(r=>r.status!=='paid').length+' / '+TVS.length);
+  }
+}
+
+/* ============ LOOP & BOOT ============ */
+setInterval(()=>{
+  if(!me)return;
+  const d=new Date();$('clock').textContent=`${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  rentals.forEach(r=>{ // waktu habis: simpan status & beri tanda (pemilik atau admin)
+    if(r.status==='active'&&r.end_at&&Date.now()>=r.end_at&&(r.user_id===me.id||me.role==='admin')&&!fin.has(r.id)){
+      fin.add(r.id);r.status='cleaning';save(r).catch(()=>{});beep();
+      toast(`${r.tv_id} Waktu Habis — Silakan proses pembayaran`,'bg-cyan-700');
+    }
+  });
+  if(tab!=='mon')return;
+  if(sigOf()!==sig){grid();if(!drawer)panel();return}
+  TVS.forEach(([id])=>{const r=cur(id);if(r&&$('tm-'+id))$('tm-'+id).textContent=timeOf(r)});
+  const r=sel&&cur(sel);if(r&&$('ptimer'))$('ptimer').textContent=timeOf(r);
+},1000);
+setInterval(()=>{if(me)refresh().catch(()=>{})},5000);
+
+(async()=>{
+  authTab(false);
+  try{const r=await fetch('/api/ping',{cache:'no-store'});if(!r.ok)throw 0;mode='server'}catch(e){mode='local'}
+  $('conn').innerHTML=mode==='server'?'<span class="text-emerald-400">● Terhubung ke MySQL</span>':'<span class="text-amber-400">● Mode lokal (demo): data tersimpan di browser ini, bukan di MySQL</span>';
+  const t=sessionStorage.getItem('tk');
+  if(t){token=t;try{await enter()}catch(e){token=null;sessionStorage.removeItem('tk')}}
+})();
+</script>
+</body>
+</html>
 
