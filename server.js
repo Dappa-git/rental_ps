@@ -2,13 +2,14 @@ const express = require('express');
 const mysql = require('mysql2/promise');
 const crypto = require('crypto');
 
-const pool = mysql.createPool({
-  host: process.env.DB_HOST || 'localhost',
-  user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASS || '',
-  database: process.env.DB_NAME || 'rental_ps',
-  connectionLimit: 10
-});
+   const pool = mysql.createPool({
+     host: process.env.DB_HOST || process.env.MYSQLHOST || 'localhost',
+     port: process.env.DB_PORT || process.env.MYSQLPORT || 3306,
+     user: process.env.DB_USER || process.env.MYSQLUSER || 'root',
+     password: process.env.DB_PASS || process.env.MYSQLPASSWORD || '',
+     database: process.env.DB_NAME || process.env.MYSQLDATABASE || 'rental_ps',
+     connectionLimit: 10
+   });
 
 const app = express();
 app.use(express.json());
